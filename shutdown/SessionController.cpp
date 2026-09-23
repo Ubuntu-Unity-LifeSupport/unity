@@ -88,7 +88,10 @@ void Controller::Show(View::Mode mode, bool inhibitors)
 {
   EnsureView();
 
-  if (Visible() && mode == view_->mode())
+  // A view still fading out after a button press is visible too: bring it
+  // back rather than letting the fade finish over the new request.
+  if (Visible() && mode == view_->mode() && inhibitors == view_->have_inhibitors() &&
+      animation::GetDirection(fade_animator_) == animation::Direction::FORWARD)
     return;
 
   UBusManager().SendMessage(UBUS_OVERLAY_CLOSE_REQUEST);

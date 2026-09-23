@@ -49,6 +49,7 @@ struct TestSessionController : testing::Test
   {
     ControllerWrap(Manager::Ptr const& manager) : Controller(manager) {}
 
+    using Controller::Show;
     using Controller::view_;
     using Controller::view_window_;
   };
@@ -111,6 +112,25 @@ TEST_F(TestSessionController, Hide)
   EXPECT_FALSE(controller.Visible());
   EXPECT_FALSE(controller.view_window_.IsValid());
   EXPECT_FALSE(controller.view_.IsValid());
+}
+
+TEST_F(TestSessionController, ShowWhileHidingKeepsTheView)
+{
+  controller.Show(View::Mode::SHUTDOWN, false);
+  tick_source.tick(ANIMATION_DURATION);
+  ASSERT_TRUE(controller.Visible());
+
+  // A button was pressed and the view is fading out...
+  controller.Hide();
+  tick_source.tick(ANIMATION_DURATION / 3);
+  ASSERT_TRUE(controller.Visible());
+
+  // ...when the session manager asks again, listing inhibitors.
+  controller.Show(View::Mode::SHUTDOWN, true);
+  tick_source.tick(ANIMATION_DURATION);
+
+  EXPECT_TRUE(controller.Visible());
+  EXPECT_TRUE(controller.view_->have_inhibitors());
 }
 
 struct Inhibited : TestSessionController, testing::WithParamInterface<bool> {};
