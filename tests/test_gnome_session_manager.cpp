@@ -1032,6 +1032,49 @@ TEST_F(TestGnomeSessionManager, StalePendingActionDoesNotBlockRequests)
   EXPECT_TRUE(cancelled);
 }
 
+TEST_F(TestGnomeSessionManager, PendingActionIsNotConfirmedByOtherCallers)
+{
+  bool reboot_called = false;
+  bool reboot_requested = false;
+  bool confirmed = false;
+
+  // A session manager that shows its own dialog and never calls Open back.
+  session_manager_->GetObjects().front()->SetMethodsCallsHandler([&] (std::string const& method, GVariant*) -> GVariant* {
+    if (method == "Reboot")
+      reboot_called = true;
+
+    return nullptr;
+  });
+
+  manager->Reboot();
+  Utils::WaitUntilMSec(reboot_called);
+  ASSERT_TRUE(reboot_called);
+
+  manager->reboot_requested.connect([&reboot_requested] (bool) { reboot_requested = true; });
+  shell_proxy_->Connect("ConfirmedReboot", [&confirmed] (GVariant*) { confirmed = true; });
+
+  // The same action, requested from a connection other than the session
+  // manager's, like the session indicator does: a new request, not the
+  // confirmation of the pending one.
+  glib::Error error;
+  glib::String address(g_dbus_address_get_for_bus_sync(G_BUS_TYPE_SESSION, nullptr, &error));
+  ASSERT_FALSE(error);
+  glib::Object<GDBusConnection> other(g_dbus_connection_new_for_address_sync(address,
+    static_cast<GDBusConnectionFlags>(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION),
+    nullptr, nullptr, &error));
+  ASSERT_FALSE(error);
+
+  g_dbus_connection_call(other, TEST_SERVER_NAME.c_str(), SHELL_OBJECT_PATH.c_str(), SHELL_INTERFACE.c_str(), "Open",
+                         g_variant_new("(uuuao)", Action::REBOOT, 0, 0, nullptr), nullptr,
+                         G_DBUS_CALL_FLAGS_NONE, -1, nullptr, nullptr, nullptr);
+
+  Utils::WaitUntilMSec(reboot_requested);
+  EXPECT_TRUE(reboot_requested);
+
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_FALSE(confirmed);
+}
+
 TEST_F(TestGnomeSessionManager, RebootRequested)
 {
   bool reboot_requested = false;
