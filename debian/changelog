@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity3) resolute; urgency=medium
+
+  * UnityCore/GnomeSessionManager.cpp: before confirming a pending end-
+    session action, show the inhibitors the session manager reports if
+    the user has not seen them. Before, a restart or shutdown chosen
+    from the session menu went past applications that inhibit it.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Wed, 23 Sep 2026 22:42:05 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity2) resolute; urgency=medium
 
   * UnityCore/GnomeSessionManager.cpp: accept the confirmation of a
