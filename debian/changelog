@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity1) resolute; urgency=medium
+
+  * UnityCore/GnomeSessionManager.cpp: drop a stale pending end-session
+    action when a new Open request arrives, so the session menu keeps
+    working after cinnamon-session's own shutdown dialog is cancelled
+    (known issue #2).
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Wed, 23 Sep 2026 19:29:57 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3) resolute; urgency=medium
 
   [ Kavish Advani ]
