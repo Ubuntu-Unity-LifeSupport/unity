@@ -48,6 +48,7 @@ struct GnomeManager::Impl
 
   void SetupLogin1Proxy(std::string const& session_path);
 
+  void RequestDialog(shell::Action action, bool inhibitors);
   void ConfirmLogout();
   void ConfirmReboot();
   void ConfirmShutdown();
@@ -79,6 +80,7 @@ struct GnomeManager::Impl
   bool can_hibernate_;
 
   shell::Action pending_action_;
+  bool inhibitors_shown_;
   glib::DBusServer shell_server_;
   glib::DBusObject::Ptr shell_object_;
   glib::DBusProxy::Ptr login_proxy_;

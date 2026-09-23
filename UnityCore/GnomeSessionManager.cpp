@@ -88,6 +88,7 @@ GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
   , can_suspend_(false)
   , can_hibernate_(false)
   , pending_action_(shell::Action::NONE)
+  , inhibitors_shown_(false)
   , shell_server_(test_mode_ ? testing::DBUS_NAME : shell::DBUS_NAME)
   , open_sessions_(0)
 {
@@ -340,23 +341,21 @@ GVariant* GnomeManager::Impl::OnShellMethodCall(std::string const& method, GVari
         CancelAction();
       }
 
-      switch (action)
-      {
-        case shell::Action::LOGOUT:
-          manager_->logout_requested.emit(has_inibitors);
-          break;
-        case shell::Action::SHUTDOWN:
-          manager_->shutdown_requested.emit(has_inibitors);
-          break;
-        case shell::Action::REBOOT:
-          manager_->reboot_requested.emit(has_inibitors);
-          break;
-        default:
-          break;
-      }
+      RequestDialog(action, has_inibitors);
+    }
+    else if (pending_action_ == action && has_inibitors && !inhibitors_shown_)
+    {
+      // The session manager found inhibitors while carrying out the action we
+      // asked for, and the dialog the user confirmed did not list them - the
+      // session indicator never passes any. Show them before going ahead; if
+      // the user confirms, we ask again and the inhibitors have been seen.
+      LOG_INFO(logger) << "Pending action " << unsigned(action) << " is inhibited, asking the user";
+      RequestDialog(action, has_inibitors);
     }
     else if (pending_action_ == action)
     {
+      inhibitors_shown_ = false;
+
       switch (action)
       {
         case shell::Action::LOGOUT:
@@ -383,6 +382,26 @@ GVariant* GnomeManager::Impl::OnShellMethodCall(std::string const& method, GVari
   }
 
   return nullptr;
+}
+
+void GnomeManager::Impl::RequestDialog(shell::Action action, bool inhibitors)
+{
+  inhibitors_shown_ = inhibitors;
+
+  switch (action)
+  {
+    case shell::Action::LOGOUT:
+      manager_->logout_requested.emit(inhibitors);
+      break;
+    case shell::Action::SHUTDOWN:
+      manager_->shutdown_requested.emit(inhibitors);
+      break;
+    case shell::Action::REBOOT:
+      manager_->reboot_requested.emit(inhibitors);
+      break;
+    default:
+      break;
+  }
 }
 
 void GnomeManager::Impl::ConfirmLogout()
@@ -877,6 +896,8 @@ bool GnomeManager::HasInhibitors() const
 
 void GnomeManager::CancelAction()
 {
+  // The dialog was dismissed: whatever it showed has not been agreed to.
+  impl_->inhibitors_shown_ = false;
   impl_->CancelAction();
 }
 

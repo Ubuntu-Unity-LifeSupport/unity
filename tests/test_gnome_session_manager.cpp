@@ -1075,6 +1075,93 @@ TEST_F(TestGnomeSessionManager, PendingActionIsNotConfirmedByOtherCallers)
   EXPECT_FALSE(confirmed);
 }
 
+TEST_F(TestGnomeSessionManager, UnseenInhibitorsAreShownBeforeConfirming)
+{
+  bool reboot_requested = false;
+  bool confirmed = false;
+
+  // The session manager carries out the reboot we asked for, finds an
+  // inhibitor and asks us again, listing it.
+  session_manager_->GetObjects().front()->SetMethodsCallsHandler([this] (std::string const& method, GVariant*) -> GVariant* {
+    if (method == "Reboot")
+      ShellOpenActionWithInhibitor(Action::REBOOT);
+
+    return nullptr;
+  });
+
+  manager->reboot_requested.connect([&reboot_requested] (bool inhibitors) {
+    reboot_requested = true;
+    EXPECT_TRUE(inhibitors);
+  });
+  shell_proxy_->Connect("ConfirmedReboot", [&confirmed] (GVariant*) { confirmed = true; });
+
+  // Confirmed in a dialog that showed no inhibitors.
+  manager->Reboot();
+
+  Utils::WaitUntilMSec(reboot_requested);
+  EXPECT_TRUE(reboot_requested);
+
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_FALSE(confirmed);
+}
+
+TEST_F(TestGnomeSessionManager, SeenInhibitorsAreConfirmed)
+{
+  bool reboot_requested = false;
+  bool confirmed = false;
+
+  session_manager_->GetObjects().front()->SetMethodsCallsHandler([this] (std::string const& method, GVariant*) -> GVariant* {
+    if (method == "Reboot")
+      ShellOpenActionWithInhibitor(Action::REBOOT);
+
+    return nullptr;
+  });
+
+  manager->reboot_requested.connect([&reboot_requested] (bool) { reboot_requested = true; });
+  shell_proxy_->Connect("ConfirmedReboot", [&confirmed] (GVariant*) { confirmed = true; });
+
+  // A dialog listing the inhibitors is shown...
+  ShellOpenActionWithInhibitor(Action::REBOOT);
+  Utils::WaitUntilMSec(reboot_requested);
+  ASSERT_TRUE(reboot_requested);
+
+  // ...and the user confirms it anyway.
+  manager->Reboot();
+
+  Utils::WaitUntilMSec(confirmed);
+  EXPECT_TRUE(confirmed);
+}
+
+TEST_F(TestGnomeSessionManager, InhibitorsSeenThenCancelledAreShownAgain)
+{
+  int reboot_requested = 0;
+  bool confirmed = false;
+
+  session_manager_->GetObjects().front()->SetMethodsCallsHandler([this] (std::string const& method, GVariant*) -> GVariant* {
+    if (method == "Reboot")
+      ShellOpenActionWithInhibitor(Action::REBOOT);
+
+    return nullptr;
+  });
+
+  manager->reboot_requested.connect([&reboot_requested] (bool) { ++reboot_requested; });
+  shell_proxy_->Connect("ConfirmedReboot", [&confirmed] (GVariant*) { confirmed = true; });
+
+  ShellOpenActionWithInhibitor(Action::REBOOT);
+  Utils::WaitUntilMSec([&reboot_requested] { return reboot_requested == 1; });
+  ASSERT_EQ(reboot_requested, 1);
+
+  // Dismissed; later a reboot is confirmed in a dialog without inhibitors.
+  manager->CancelAction();
+  manager->Reboot();
+
+  Utils::WaitUntilMSec([&reboot_requested] { return reboot_requested == 2; });
+  EXPECT_EQ(reboot_requested, 2);
+
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_FALSE(confirmed);
+}
+
 TEST_F(TestGnomeSessionManager, RebootRequested)
 {
   bool reboot_requested = false;
