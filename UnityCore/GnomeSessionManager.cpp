@@ -773,7 +773,7 @@ void GnomeManager::Reboot()
 {
   impl_->EnsureCancelPendingAction();
   impl_->pending_action_ = shell::Action::REBOOT;
-  impl_->CallGnomeSessionMethod("Reboot", nullptr,
+  impl_->CallGnomeSessionMethod("RequestReboot", nullptr,
     [this] (GVariant*, glib::Error const& err) {
       if (err)
       {
@@ -795,7 +795,7 @@ void GnomeManager::Shutdown()
 {
   impl_->EnsureCancelPendingAction();
   impl_->pending_action_ = shell::Action::SHUTDOWN;
-  impl_->CallGnomeSessionMethod("Shutdown", nullptr,
+  impl_->CallGnomeSessionMethod("RequestShutdown", nullptr,
     [this] (GVariant*, glib::Error const& err) {
       if (err)
       {

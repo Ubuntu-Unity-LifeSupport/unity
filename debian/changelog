@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity2+optb1) UNRELEASED; urgency=medium
+
+  * EXPERIMENT, not for release: after Unity's own dialog is confirmed,
+    call RequestShutdown/RequestReboot instead of Shutdown/Reboot, so
+    the session manager does not show a second dialog (known issue #6,
+    option B).
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Wed, 23 Sep 2026 21:20:21 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity2) resolute; urgency=medium
 
   * UnityCore/GnomeSessionManager.cpp: accept the confirmation of a
