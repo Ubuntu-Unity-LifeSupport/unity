@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity4) resolute; urgency=medium
+
+  * shutdown/SessionController.cpp: a request to show the dialog while
+    it is fading out brings it back instead of being ignored. +unity3
+    lacked this and left the session waiting when inhibitors had to be
+    shown after confirming; it was built and tested, never published.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Wed, 23 Sep 2026 23:05:16 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity3) resolute; urgency=medium
 
   * UnityCore/GnomeSessionManager.cpp: before confirming a pending end-
