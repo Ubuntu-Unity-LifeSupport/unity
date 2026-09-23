@@ -54,11 +54,12 @@ struct GnomeManager::Impl
   void CancelAction();
   void ClosedDialog();
   bool HasInhibitors();
+  bool IsSessionManager(std::string const& sender);
   void EnsureCancelPendingAction();
   void LockScreen(bool prompt);
   void UserIconFile(std::function<void(std::string const&)> const& callback);
 
-  GVariant* OnShellMethodCall(std::string const& method, GVariant* parameters);
+  GVariant* OnShellMethodCall(std::string const& method, GVariant* parameters, std::string const& sender, std::string const&);
   void CallGnomeSessionMethod(std::string const& method, GVariant* parameters = nullptr,
                               glib::DBusProxy::CallFinishedCallback const& cb = nullptr);
   void CallUPowerMethod(std::string const& method, glib::DBusProxy::ReplyCallback const& cb = nullptr);

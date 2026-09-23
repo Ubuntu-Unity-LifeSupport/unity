@@ -93,7 +93,7 @@ GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
 {
   shell_server_.AddObjects(shell::INTROSPECTION_XML, shell::DBUS_OBJECT_PATH);
   shell_object_ = shell_server_.GetObject(shell::DBUS_INTERFACE);
-  shell_object_->SetMethodsCallsHandler(sigc::mem_fun(this, &Impl::OnShellMethodCall));
+  shell_object_->SetMethodsCallsHandlerFull(sigc::mem_fun(this, &Impl::OnShellMethodCall));
 
   manager_->is_locked = false;
   manager_->is_locked.changed.connect([this] (bool locked) {
@@ -279,7 +279,7 @@ bool GnomeManager::Impl::InteractiveMode()
   return g_settings_get_boolean(setting, SUPPRESS_DIALOGS_KEY.c_str()) != TRUE;
 }
 
-GVariant* GnomeManager::Impl::OnShellMethodCall(std::string const& method, GVariant* parameters)
+GVariant* GnomeManager::Impl::OnShellMethodCall(std::string const& method, GVariant* parameters, std::string const& sender, std::string const&)
 {
   LOG_DEBUG(logger) << "Called method '" << method << "'";
 
@@ -301,6 +301,20 @@ GVariant* GnomeManager::Impl::OnShellMethodCall(std::string const& method, GVari
 
     LOG_INFO(logger) << "Got Open request for action " << unsigned(action)
                      << " with inhibitors " << has_inibitors;
+
+    if (pending_action_ != shell::Action::NONE &&
+        (pending_action_ != action || !IsSessionManager(sender)))
+    {
+      // Only the session manager calling back with the action we asked it for
+      // confirms a pending action. Anything else means it never called back:
+      // it showed a dialog of its own which was then cancelled. The pending
+      // action is stale. Kept, it would make us ignore every request for
+      // another action, and take a request for the same one from any caller
+      // as the confirmation - and the session indicator carries out a
+      // confirmed action at once, with no dialog shown.
+      LOG_INFO(logger) << "Dropping stale pending action " << unsigned(pending_action_);
+      CancelAction();
+    }
 
     if (pending_action_ == shell::Action::NONE)
     {
@@ -528,6 +542,30 @@ void GnomeManager::Impl::UpdateHaveOtherOpenSessions()
         manager_->have_other_open_sessions.changed.emit(open_sessions_);
       }
   });
+}
+
+bool GnomeManager::Impl::IsSessionManager(std::string const& sender)
+{
+  glib::Error error;
+  glib::Object<GDBusConnection> bus(g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error));
+
+  if (error)
+  {
+    LOG_ERROR(logger) << "Impossible to get the session bus, to check the caller: " << error;
+    return false;
+  }
+
+  glib::Variant owner(g_dbus_connection_call_sync(bus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                                  "GetNameOwner", g_variant_new("(s)", test_mode_ ? testing::DBUS_NAME.c_str() : "org.gnome.SessionManager"),
+                                                  G_VARIANT_TYPE("(s)"), G_DBUS_CALL_FLAGS_NONE, 500, cancellable_, &error));
+
+  if (error)
+  {
+    LOG_WARNING(logger) << "Impossible to get the session manager owner: " << error;
+    return false;
+  }
+
+  return owner.GetString() == sender;
 }
 
 bool GnomeManager::Impl::HasInhibitors()
