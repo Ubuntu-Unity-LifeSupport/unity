@@ -997,6 +997,41 @@ TEST_F(TestGnomeSessionManager, SimulateRealShutdown)
   EXPECT_TRUE(closed);
 }
 
+TEST_F(TestGnomeSessionManager, StalePendingActionDoesNotBlockRequests)
+{
+  bool shutdown_called = false;
+  bool reboot_requested = false;
+  bool cancelled = false;
+
+  // A session manager that shows its own dialog and never calls Open back,
+  // so the shutdown we ask for stays pending if that dialog is cancelled.
+  session_manager_->GetObjects().front()->SetMethodsCallsHandler([&] (std::string const& method, GVariant*) -> GVariant* {
+    if (method == "Shutdown")
+      shutdown_called = true;
+
+    return nullptr;
+  });
+
+  manager->Shutdown();
+  Utils::WaitUntilMSec(shutdown_called);
+  ASSERT_TRUE(shutdown_called);
+
+  manager->reboot_requested.connect([&reboot_requested] (bool inhibitors) {
+    reboot_requested = true;
+    EXPECT_FALSE(inhibitors);
+  });
+
+  shell_proxy_->Connect("Canceled", [&cancelled] (GVariant*) { cancelled = true; });
+
+  ShellOpenAction(Action::REBOOT);
+
+  Utils::WaitUntilMSec(reboot_requested);
+  EXPECT_TRUE(reboot_requested);
+
+  Utils::WaitUntilMSec(cancelled);
+  EXPECT_TRUE(cancelled);
+}
+
 TEST_F(TestGnomeSessionManager, RebootRequested)
 {
   bool reboot_requested = false;

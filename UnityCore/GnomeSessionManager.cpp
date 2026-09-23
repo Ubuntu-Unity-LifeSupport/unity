@@ -302,6 +302,16 @@ GVariant* GnomeManager::Impl::OnShellMethodCall(std::string const& method, GVari
     LOG_INFO(logger) << "Got Open request for action " << unsigned(action)
                      << " with inhibitors " << has_inibitors;
 
+    if (pending_action_ != shell::Action::NONE && pending_action_ != action)
+    {
+      // We asked the session manager for an action and it never confirmed it
+      // through us: it showed a dialog of its own which was then cancelled, or
+      // it doesn't call back here at all. The pending action is stale; unless
+      // we drop it, this request and every later one would be ignored.
+      LOG_INFO(logger) << "Dropping stale pending action " << unsigned(pending_action_);
+      CancelAction();
+    }
+
     if (pending_action_ == shell::Action::NONE)
     {
       if (!InteractiveMode() && !has_inibitors)
