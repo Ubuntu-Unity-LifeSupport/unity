@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity2) resolute; urgency=medium
+
+  * UnityCore/GnomeSessionManager.cpp: accept the confirmation of a
+    pending end-session action only from the session manager. Before, a
+    stale pending restart was confirmed by the session indicator's next
+    request and the machine restarted without a dialog.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Wed, 23 Sep 2026 20:04:01 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity1) resolute; urgency=medium
 
   * UnityCore/GnomeSessionManager.cpp: drop a stale pending end-session
