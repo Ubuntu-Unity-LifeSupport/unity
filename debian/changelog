@@ -1,3 +1,13 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity7) resolute; urgency=medium
+
+  * decorations/DecoratedWindow.cpp: redraw a window's decoration when
+    its decoration elements change. After a compiz restart every window
+    that was not focused lost its title bar, buttons and shadow until it
+    was focused. +unity6 lacked this; it was built and tried on target,
+    never published.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Thu, 24 Sep 2026 13:47:46 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity6) resolute; urgency=medium
 
   * unity-shared/ThumbnailGenerator.cpp: don't pthread_join() a thread
