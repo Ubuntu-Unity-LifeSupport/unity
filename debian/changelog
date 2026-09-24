@@ -1,3 +1,15 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity6) resolute; urgency=medium
+
+  * unity-shared/ThumbnailGenerator.cpp: don't pthread_join() a thread
+    that was never started; compiz segfaulted on 'killall -1 compiz'
+    when no preview had been opened in the session. Also reap finished
+    thumbnail threads, fix the cleanup thread's flag, join it on
+    destruction and close the preview directory.
+  * a11y/unitya11y.cpp: skip the accessible table once it is finalized;
+    hundreds of g_hash_table_remove criticals on every compiz restart.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Thu, 24 Sep 2026 13:01:53 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity5) resolute; urgency=medium
 
   * UnityCore/GnomeSessionManager.cpp: don't fall back to logind when
