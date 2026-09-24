@@ -238,9 +238,12 @@ on_object_destroy_cb(nux::Object* base_object,
   /* NOTE: the pair key:value (base_object:accessible_object) could be
      already removed on on_accessible_destroy_cb. That just means that
      g_hash_table_remove would return FALSE. We don't add a
-     debug/warning message to avoid being too verbose */
+     debug/warning message to avoid being too verbose. The table is gone
+     when the object outlives unity_a11y_finalize, as the panels do when
+     unityshell is unloaded. */
 
-  g_hash_table_remove(accessible_table, base_object);
+  if (accessible_table)
+    g_hash_table_remove(accessible_table, base_object);
 }
 
 static void
@@ -252,7 +255,8 @@ on_accessible_destroy_cb(gpointer data,
      g_hash_table_remove would return FALSE. We don't add a
      debug/warning message to avoid being too verbose */
 
-  g_hash_table_remove(accessible_table, data);
+  if (accessible_table)
+    g_hash_table_remove(accessible_table, data);
 }
 
 /*
