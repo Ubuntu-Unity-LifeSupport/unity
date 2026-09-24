@@ -108,6 +108,8 @@ Window::Impl::~Impl()
 
 void Window::Impl::Update()
 {
+  unsigned old_elements = deco_elements_;
+
   UpdateClientDecorationsState();
   UpdateElements(client_decorated_ ? cu::WindowFilter::CLIENTSIDE_DECORATED : cu::WindowFilter::NONE);
 
@@ -118,6 +120,12 @@ void Window::Impl::Update()
 
   last_mwm_decor_ = win_->mwmDecor();
   last_actions_ = win_->actions();
+
+  // The shadow and the decoration textures are computed from the elements at
+  // paint time. After a compiz restart a window can be painted before it has
+  // any, and nothing else would recompute them until it got focused.
+  if (deco_elements_ != old_elements)
+    RedrawDecorations();
 }
 
 void Window::Impl::Decorate()
