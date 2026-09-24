@@ -631,7 +631,21 @@ void Window::Impl::ComputeGenericShadowQuads()
   const auto* texture = SharedShadowTexture();
 
   if (!texture || !texture->width() || !texture->height())
+  {
+    // No shadow: the theme can set its radius to 0 (Yaru does for inactive
+    // windows). Draw() still needs a shadow rect to paint the rest of the
+    // decoration, so use the frame and paint no shadow quads.
+    for (unsigned i = 0; i < shadow_quads_.size(); ++i)
+      shadow_quads_[Quads::Pos(i)].region = CompRegion();
+
+    CompRect const& border = win_->borderRect();
+    if (border != last_shadow_rect_)
+    {
+      last_shadow_rect_ = border;
+      win_->updateWindowOutputExtents();
+    }
     return;
+  }
 
   Quads& quads = shadow_quads_;
   auto const& tex_matrix = texture->matrix();
