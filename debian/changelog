@@ -1,3 +1,15 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity9) resolute; urgency=medium
+
+  * unity-shared/FileManager.cpp: fall back to Nemo when the default
+    file manager is neither Nautilus nor Nemo; compiz segfaulted at
+    every start (LP: #2160299, patch by Riku).
+  * decorations/DecoratedWindow.cpp: rebuild the shaped shadow when its
+    pixmap is gone; shaped override-redirect windows with an empty shape
+    in between (Wine menus) crashed compiz (LP: #2165662, patch by
+    OldSamuray).
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Thu, 24 Sep 2026 22:37:48 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity8) resolute; urgency=medium
 
   * decorations/DecoratedWindow.cpp: draw the decoration of a window
