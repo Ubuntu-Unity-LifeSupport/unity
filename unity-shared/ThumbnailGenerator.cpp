@@ -87,11 +87,21 @@ public:
   , thumbnails_mutex_(PTHREAD_MUTEX_INITIALIZER)
   , thumbnail_thread_is_running_(false)
   , thumbnail_thread_(0)
+  , thumbnail_thread_started_(false)
+  , management_thread_is_running_(false)
+  , management_thread_(0)
+  , management_thread_started_(false)
   {}
 
   ~ThumbnailGeneratorImpl()
   {
-    pthread_join(thumbnail_thread_, NULL);
+    // pthread_join() on a thread that was never created crashes in glibc.
+    // compiz hit it on SIGHUP restart when nothing had asked for a thumbnail.
+    if (thumbnail_thread_started_)
+      pthread_join(thumbnail_thread_, NULL);
+
+    if (management_thread_started_)
+      pthread_join(management_thread_, NULL);
   }
 
   ThumbnailNotifier::Ptr GetThumbnail(std::string const& uri, int size);
@@ -122,9 +132,11 @@ private:
    start more than one. Lock thumbnails_mutex when accessing this. */
   volatile bool thumbnail_thread_is_running_;
   pthread_t thumbnail_thread_;
+  bool thumbnail_thread_started_;
 
   volatile bool management_thread_is_running_;
   pthread_t management_thread_;
+  bool management_thread_started_;
 
   glib::Source::UniquePtr cleanup_timer_;
 
@@ -189,8 +201,13 @@ ThumbnailNotifier::Ptr ThumbnailGeneratorImpl::GetThumbnail(std::string const& u
   {
     thread_create_timer_.reset(new glib::Timeout(0, [this]()
     {
+      // The previous thread has left its loop, reap it before reusing the handle
+      if (thumbnail_thread_started_)
+        pthread_join(thumbnail_thread_, NULL);
+
       thumbnail_thread_is_running_ = true;
-      pthread_create (&thumbnail_thread_, NULL, thumbnail_thread_start, this);
+      thumbnail_thread_started_ = pthread_create(&thumbnail_thread_, NULL, thumbnail_thread_start, this) == 0;
+      thumbnail_thread_is_running_ = thumbnail_thread_started_;
       thread_create_timer_.reset();
       return false;
     }, glib::Source::Priority::LOW));
@@ -368,8 +385,12 @@ void ThumbnailGeneratorImpl::DoCleanup()
 
   if (!management_thread_is_running_)
   {
+    if (management_thread_started_)
+      pthread_join(management_thread_, NULL);
+
     management_thread_is_running_ = true;
-    pthread_create (&management_thread_, NULL, management_thread_start, this);
+    management_thread_started_ = pthread_create(&management_thread_, NULL, management_thread_start, this) == 0;
+    management_thread_is_running_ = management_thread_started_;
   }
 }
 
@@ -383,13 +404,14 @@ void ThumbnailGeneratorImpl::RunManagement()
   if (err)
   {
     LOG_ERROR(logger) << "Impossible to open directory: " << err;
+    management_thread_is_running_ = false;
     return;
   }
 
   const gchar* file_basename = NULL;;
   while ((file_basename = g_dir_read_name(thumbnailer_dir)) != NULL)
   {
-    std::string filename = g_build_filename (thumbnail_folder_name.c_str(), file_basename, NULL);
+    std::string filename = glib::String(g_build_filename(thumbnail_folder_name.c_str(), file_basename, NULL)).Str();
 
     glib::Object<GFile> file(g_file_new_for_path(filename.c_str()));
 
@@ -398,7 +420,7 @@ void ThumbnailGeneratorImpl::RunManagement()
     if (err)
     {
       LOG_ERROR(logger) << "Impossible to get file info: " << err;
-      return;
+      break;
     }
 
     guint64 mtime = g_file_info_get_attribute_uint64(file_info, G_FILE_ATTRIBUTE_TIME_CREATED);
@@ -409,7 +431,8 @@ void ThumbnailGeneratorImpl::RunManagement()
     }
   }
 
-  thumbnail_thread_is_running_ = false;
+  g_dir_close(thumbnailer_dir);
+  management_thread_is_running_ = false;
 }
 
 ThumbnailGenerator::ThumbnailGenerator()
