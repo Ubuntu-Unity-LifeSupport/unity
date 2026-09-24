@@ -43,13 +43,12 @@ FileManager::Ptr FileManager::GetDefault()
 
       if (app_id == "org.gnome.Nautilus.desktop")
         fm = GnomeFileManager::Get();
-      else if (app_id == "nemo.desktop")
-        fm = NemoFileManager::Get();
     }
-    else
-    {
+
+    // Nemo when there is no default, or one Unity has no support for:
+    // callers take the result as never empty.
+    if (!fm)
       fm = NemoFileManager::Get();
-    }
   }
 
   return fm;
