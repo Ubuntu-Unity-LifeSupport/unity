@@ -786,8 +786,14 @@ void Window::Impl::ComputeShapedShadowQuad()
   int width = shape.Width() + radius * 2 * SHADOW_BLUR_MARGIN_FACTOR;
   int height = shape.Height() + radius * 2 * SHADOW_BLUR_MARGIN_FACTOR;
 
-  if (width != last_shadow_rect_.width() || height != last_shadow_rect_.height())
+  // The pixmap is also gone when the shape was empty on the previous call,
+  // which leaves last_shadow_rect_ at the old size.
+  if (!shaped_shadow_pixmap_ ||
+      width != last_shadow_rect_.width() || height != last_shadow_rect_.height())
     shaped_shadow_pixmap_ = BuildShapedShadowTexture({width, height}, radius, color, shape);
+
+  if (!shaped_shadow_pixmap_)
+    return;
 
   const auto* texture = shaped_shadow_pixmap_->texture();
 
