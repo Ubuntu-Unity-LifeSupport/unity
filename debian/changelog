@@ -1,3 +1,14 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity8) resolute; urgency=medium
+
+  * decorations/DecoratedWindow.cpp: draw the decoration of a window
+    that has no shadow. Yaru sets the inactive shadow radius to 0, and a
+    window that had not been focused since compiz started had no title
+    bar or buttons; after 'killall -1 compiz' that was every window but
+    one. +unity7 lacked this; built and tried on target, never
+    published.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Thu, 24 Sep 2026 16:44:13 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity7) resolute; urgency=medium
 
   * decorations/DecoratedWindow.cpp: redraw a window's decoration when
