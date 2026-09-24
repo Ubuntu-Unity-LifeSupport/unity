@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity5) resolute; urgency=medium
+
+  * UnityCore/GnomeSessionManager.cpp: don't fall back to logind when
+    the session manager refuses a logout, reboot or shutdown
+    (NotInRunning, LockedDown); that went past inhibitors and lockdown
+    policy.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Thu, 24 Sep 2026 06:44:01 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity4) resolute; urgency=medium
 
   * shutdown/SessionController.cpp: a request to show the dialog while
