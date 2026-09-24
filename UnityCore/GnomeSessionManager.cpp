@@ -79,6 +79,16 @@ const std::string GNOME_LOCKDOWN_OPTIONS = "org.gnome.desktop.lockdown";
 const std::string DISABLE_LOCKSCREEN_KEY = "disable-lock-screen";
 
 GDBusProxyFlags DEFAULT_CALL_FLAGS = static_cast<GDBusProxyFlags>(G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES|G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS|G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START_AT_CONSTRUCTION);
+
+// The session manager answered, and said no: it is already ending the session,
+// or policy forbids the action. Going around it through logind would override
+// both - and inhibitors with them.
+bool SessionManagerRefused(glib::Error const& err)
+{
+  glib::String name(g_dbus_error_get_remote_error(const_cast<glib::Error&>(err)));
+  std::string const& n = name.Str();
+  return n == "org.gnome.SessionManager.NotInRunning" || n == "org.gnome.SessionManager.LockedDown";
+}
 }
 
 GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
@@ -762,6 +772,10 @@ void GnomeManager::Logout()
         LOG_WARNING(logger) << "Got error during call: " << err.Message();
 
         impl_->pending_action_ = shell::Action::NONE;
+
+        if (SessionManagerRefused(err))
+          return;
+
         // fallback to logind
         const char* session_id = g_getenv("XDG_SESSION_ID");
 
@@ -800,6 +814,10 @@ void GnomeManager::Reboot()
                             << ". Using fallback method";
 
         impl_->pending_action_ = shell::Action::NONE;
+
+        if (SessionManagerRefused(err))
+          return;
+
         // logind fallback
         impl_->CallLogindMethod("Reboot", g_variant_new("(b)", FALSE), [this] (GVariant* variant, glib::Error const& err) {
          // ConsoleKit fallback
@@ -822,6 +840,10 @@ void GnomeManager::Shutdown()
                             << ". Using fallback method";
 
         impl_->pending_action_ = shell::Action::NONE;
+
+        if (SessionManagerRefused(err))
+          return;
+
         // logind fallback
         impl_->CallLogindMethod("PowerOff", g_variant_new("(b)", FALSE), [this] (GVariant* variant, glib::Error const& err) {
          // ConsoleKit fallback
