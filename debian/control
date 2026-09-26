@@ -230,6 +230,7 @@ Section: python
 Architecture: all
 Depends: ${misc:Depends},
          ${python3:Depends},
+         python3-requests,
          python3,
          xorg,
          libxinerama-dev,
