@@ -246,17 +246,17 @@ if __name__ == '__main__':
     parser = OptionParser(version= "%prog @UNITY_VERSION@", usage=usage)
 
     parser.add_option("--advanced-debug", action="store_true",
-                      help="Run unity under debugging to help debugging an issue. /!\ Only if devs ask for it.")
+                      help="Run unity under debugging to help debugging an issue. /!\\ Only if devs ask for it.")
     parser.add_option("--compiz-path", action="store", dest="compiz_path",
-                      help="Path to compiz. /!\ Only if devs ask for it.")
+                      help="Path to compiz. /!\\ Only if devs ask for it.")
     parser.add_option("--debug", action="store_true",
-                      help="Run unity under gdb and print a backtrace on crash. /!\ Only if devs ask for it.")
+                      help="Run unity under gdb and print a backtrace on crash. /!\\ Only if devs ask for it.")
     parser.add_option("--distro", action="store_true",
                       help="Remove local build if present with default values to return to the package value (this doesn't run unity and need root access)")
     parser.add_option("--log", action="store",
                       help="Store log under filename.")
     parser.add_option("--replace", action="store_true",
-                      help="Run unity /!\ This is for compatibility with other desktop interfaces and acts the same as running unity without --replace")
+                      help="Run unity /!\\ This is for compatibility with other desktop interfaces and acts the same as running unity without --replace")
     if is_systemd_session() and not is_unity_running_in_upstart():
         parser.add_option("--ignore-systemd", action="store_true", dest="ignore_session_manager",
                           help="Run unity without systemd support")
