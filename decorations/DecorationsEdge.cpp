@@ -83,6 +83,16 @@ CompWindow* Edge::Window() const
 
 void Edge::ButtonDownEvent(CompPoint const& p, unsigned button, Time timestamp)
 {
+  // Another button pressed on an edge while a move or resize is running (the
+  // right button during a border drag, the wheel) must not start a second one:
+  // XUngrabPointer below would take the pointer grab away from the running
+  // operation, which then never sees its button released and keeps its grab
+  // in compiz. With a compiz grab held, compiz stops thawing the synchronous
+  // button grabs on window frames, and the next click on a frame freezes the
+  // pointer: clicks go nowhere until compiz restarts (known issue #3).
+  if (screen->grabExist("resize") || screen->grabExist("move"))
+    return;
+
   XEvent ev;
   auto* dpy = screen->dpy();
 
