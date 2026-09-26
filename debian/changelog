@@ -1,3 +1,12 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity11) resolute; urgency=medium
+
+  * unity: escape the backslash in four --help strings (invalid escape
+    SyntaxWarning under Python 3.12+).
+  * unity-uwidgets: depend on python3-requests, imported by the
+    wallpaper settings and the spotify widget.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Sat, 26 Sep 2026 16:47:23 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity10) resolute; urgency=medium
 
   * DecorationsEdge: don't start a move or resize while one is running;
