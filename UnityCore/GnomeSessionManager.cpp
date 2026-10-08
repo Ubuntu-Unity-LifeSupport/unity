@@ -99,6 +99,7 @@ GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
   , can_hibernate_(false)
   , pending_action_(shell::Action::NONE)
   , inhibitors_shown_(false)
+  , locked_hint_written_(false)
   , locked_hint_set_(false)
   , shell_server_(test_mode_ ? testing::DBUS_NAME : shell::DBUS_NAME)
   , open_sessions_(0)
@@ -285,6 +286,12 @@ void GnomeManager::Impl::SyncLockedHint()
   if (!manager_->writes_locked_hint() && (!locked_hint_set_ || locked))
     return;
 
+  // Write changes only: a switch back from legacy mode must not overwrite the
+  // other locker's hint with a value Unity has already written.
+  if (locked_hint_written_ && locked == locked_hint_set_)
+    return;
+
+  locked_hint_written_ = true;
   locked_hint_set_ = locked;
   login_proxy_->CallBegin("SetLockedHint", g_variant_new("(b)", locked ? TRUE : FALSE),
                           [locked] (GVariant*, glib::Error const& err) {

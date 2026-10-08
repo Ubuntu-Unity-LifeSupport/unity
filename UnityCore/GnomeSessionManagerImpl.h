@@ -82,6 +82,7 @@ struct GnomeManager::Impl
 
   shell::Action pending_action_;
   bool inhibitors_shown_;
+  bool locked_hint_written_;
   bool locked_hint_set_;
   glib::DBusServer shell_server_;
   glib::DBusObject::Ptr shell_object_;

@@ -266,6 +266,9 @@ struct TestGnomeSessionManager : testing::Test
 
   void TearDown()
   {
+    logind_->GetObject("org.freedesktop.login1.Session")->SetMethodsCallsHandler(nullptr);
+    manager->writes_locked_hint = false;
+    manager->is_locked = false;
     manager->have_other_open_sessions.changed.clear();
     manager->is_session_active.changed.clear();
     manager->lock_requested.clear();
@@ -1345,7 +1348,21 @@ TEST_F(TestGnomeSessionManager, LockedHintOnlyWhileWriting)
   Utils::WaitForTimeoutMSec(100);
   EXPECT_EQ(2u, hints.size());
 
-  logind_->GetObject("org.freedesktop.login1.Session")->SetMethodsCallsHandler(nullptr);
+  // Back from legacy mode while unlocked: "no" was the last value Unity wrote,
+  // so it writes nothing over the other locker's hint.
+  manager->writes_locked_hint = true;
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_EQ(2u, hints.size());
+
+  manager->is_locked = true;
+  Utils::WaitUntilMSec([&hints] { return hints.size() == 3; });
+  ASSERT_EQ(3u, hints.size());
+  EXPECT_TRUE(hints[2]);
+
+  manager->is_locked = false;
+  Utils::WaitUntilMSec([&hints] { return hints.size() == 4; });
+  ASSERT_EQ(4u, hints.size());
+  EXPECT_FALSE(hints[3]);
 }
 
 TEST_F(TestGnomeSessionManager, NoLockWhenLockingDisabled)
