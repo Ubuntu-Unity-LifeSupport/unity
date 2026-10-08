@@ -1,3 +1,15 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity13) resolute; urgency=medium
+
+  * lockscreen: org.gnome.ScreenSaver GetActive now answers true while the
+    session is locked, not only while the screen is blanked, and
+    ActiveChanged is sent when that combined value changes, once per change.
+  * session: report the lock to logind (SetLockedHint) while Unity's own
+    lockscreen is the session's locker. In legacy mode (screen reader or
+    on-screen keyboard enabled) the hint is left to the other locker; a
+    "locked" hint Unity set before such a switch is cleared on unlock.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Thu, 08 Oct 2026 10:22:11 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity12) resolute; urgency=medium
 
   * decorations: a press on a window edge leaves any compiz grab alone, not
