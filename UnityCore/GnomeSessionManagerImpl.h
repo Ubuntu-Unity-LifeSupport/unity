@@ -47,6 +47,7 @@ struct GnomeManager::Impl
   ~Impl();
 
   void SetupLogin1Proxy(std::string const& session_path);
+  void SyncLockedHint();
 
   void RequestDialog(shell::Action action, bool inhibitors);
   void ConfirmLogout();
@@ -81,6 +82,7 @@ struct GnomeManager::Impl
 
   shell::Action pending_action_;
   bool inhibitors_shown_;
+  bool locked_hint_set_;
   glib::DBusServer shell_server_;
   glib::DBusObject::Ptr shell_object_;
   glib::DBusProxy::Ptr login_proxy_;

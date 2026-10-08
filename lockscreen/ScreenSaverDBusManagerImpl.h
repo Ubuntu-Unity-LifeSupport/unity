@@ -32,7 +32,8 @@ struct DBusManager::Impl : sigc::trackable
 {
   Impl(DBusManager*, session::Manager::Ptr const& session, bool test_mode);
 
-  void SetActive(bool active);
+  bool IsActive() const;
+  void UpdateActive();
   void EnsureService();
 
   DBusManager* manager_;
@@ -41,6 +42,7 @@ struct DBusManager::Impl : sigc::trackable
   glib::DBusServer::Ptr server_;
   glib::DBusObject::Ptr object_;
 
+  bool active_;
   time_t time_;
 };
 

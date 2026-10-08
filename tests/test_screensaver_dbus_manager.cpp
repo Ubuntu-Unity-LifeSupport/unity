@@ -148,6 +148,66 @@ TEST_F(TestScreenSaverDBusManager, GetActive)
   ASSERT_TRUE(active);
 }
 
+TEST_F(TestScreenSaverDBusManager, GetActiveWhileLocked)
+{
+  bool call_finished = false;
+  bool active = false;
+
+  auto get_active_cb = [&call_finished, &active](GVariant* value) {
+    call_finished = true;
+    active = glib::Variant(value).GetBool();
+  };
+
+  session_manager->is_locked = true;
+  ASSERT_FALSE(sc_dbus_manager->active());
+
+  gs_proxy->Call("GetActive", nullptr, get_active_cb);
+  Utils::WaitUntil(call_finished);
+  ASSERT_TRUE(active);
+
+  session_manager->is_locked = false;
+
+  call_finished = false;
+  gs_proxy->Call("GetActive", nullptr, get_active_cb);
+  Utils::WaitUntil(call_finished);
+  ASSERT_FALSE(active);
+}
+
+TEST_F(TestScreenSaverDBusManager, ActiveChangedOnlyOnChange)
+{
+  std::vector<bool> signals;
+
+  gs_proxy->Connect("ActiveChanged", [&signals](GVariant* value) {
+    signals.push_back(glib::Variant(value).GetBool());
+  });
+
+  sc_dbus_manager->active = true;
+  Utils::WaitUntilMSec([&signals] { return signals.size() == 1; });
+
+  // Locking under the blank window and dropping the blank window while locked
+  // change nothing a client can see.
+  session_manager->is_locked = true;
+  sc_dbus_manager->active = false;
+  Utils::WaitForTimeoutMSec(100);
+  ASSERT_EQ(1u, signals.size());
+  EXPECT_TRUE(signals[0]);
+
+  session_manager->is_locked = false;
+  Utils::WaitUntilMSec([&signals] { return signals.size() == 2; });
+  ASSERT_EQ(2u, signals.size());
+  EXPECT_FALSE(signals[1]);
+}
+
+TEST_F(TestScreenSaverDBusManager, WritesLockedHintOnlyWithoutLegacy)
+{
+  lockscreen_settings.use_legacy = false;
+  auto sc_dbus_manager_tmp = std::make_shared<WrapperDBusManager>(session_manager);
+  EXPECT_TRUE(session_manager->writes_locked_hint());
+
+  lockscreen_settings.use_legacy = true;
+  EXPECT_FALSE(session_manager->writes_locked_hint());
+}
+
 TEST_F(TestScreenSaverDBusManager, GetActiveTime)
 {
   bool call_finished = false;

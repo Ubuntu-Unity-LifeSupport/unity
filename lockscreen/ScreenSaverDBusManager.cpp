@@ -64,10 +64,14 @@ DBusManager::Impl::Impl(DBusManager* manager, session::Manager::Ptr const& sessi
   , session_(session)
   , test_mode_(test_mode)
   , object_(std::make_shared<glib::DBusObject>(dbus::INTROSPECTION_XML, dbus::INTERFACE))
+  , active_(false)
   , time_(0)
 {
   manager_->active = false;
-  manager_->active.changed.connect(sigc::mem_fun(this, &DBusManager::Impl::SetActive));
+  manager_->active.changed.connect(sigc::hide(sigc::mem_fun(this, &DBusManager::Impl::UpdateActive)));
+  // The blank window alone is not the lock: a locked session counts as active too.
+  session_->is_locked.changed.connect(sigc::hide(sigc::mem_fun(this, &DBusManager::Impl::UpdateActive)));
+  UpdateActive();
 
   // This is a workaround we use to fallback to use gnome-screensaver if the screen reader is enabled
   Settings::Instance().use_legacy.changed.connect(sigc::hide(sigc::mem_fun(this, &Impl::EnsureService)));
@@ -79,7 +83,7 @@ DBusManager::Impl::Impl(DBusManager* manager, session::Manager::Ptr const& sessi
     }
     else if (method == "GetActive")
     {
-      return g_variant_new("(b)", manager_->active() ? TRUE : FALSE);
+      return g_variant_new("(b)", IsActive() ? TRUE : FALSE);
     }
     else if (method == "GetActiveTime")
     {
@@ -105,6 +109,8 @@ DBusManager::Impl::Impl(DBusManager* manager, session::Manager::Ptr const& sessi
 
 void DBusManager::Impl::EnsureService()
 {
+  session_->writes_locked_hint = !Settings::Instance().use_legacy();
+
   if (!Settings::Instance().use_legacy())
   {
     if (!server_)
@@ -124,8 +130,19 @@ void DBusManager::Impl::EnsureService()
   }
 }
 
-void DBusManager::Impl::SetActive(bool active)
+bool DBusManager::Impl::IsActive() const
 {
+  return manager_->active() || session_->is_locked();
+}
+
+void DBusManager::Impl::UpdateActive()
+{
+  bool active = IsActive();
+
+  if (active == active_)
+    return;
+
+  active_ = active;
   time_ = active ? time(nullptr) : 0;
   object_->EmitSignal("ActiveChanged", g_variant_new("(b)", active ? TRUE : FALSE));
 }

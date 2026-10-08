@@ -99,6 +99,7 @@ GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
   , can_hibernate_(false)
   , pending_action_(shell::Action::NONE)
   , inhibitors_shown_(false)
+  , locked_hint_set_(false)
   , shell_server_(test_mode_ ? testing::DBUS_NAME : shell::DBUS_NAME)
   , open_sessions_(0)
 {
@@ -108,8 +109,12 @@ GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
 
   manager_->is_locked = false;
   manager_->is_locked.changed.connect([this] (bool locked) {
+    SyncLockedHint();
     locked ? manager_->locked.emit() : manager_->unlocked.emit();
   });
+
+  manager_->writes_locked_hint = false;
+  manager_->writes_locked_hint.changed.connect(sigc::hide(sigc::mem_fun(this, &Impl::SyncLockedHint)));
 
   {
     std::string session_id = test_mode_ ? "id0" : glib::gchar_to_string(g_getenv("XDG_SESSION_ID"));
@@ -262,6 +267,29 @@ void GnomeManager::Impl::SetupLogin1Proxy(std::string const& session_path)
 
   manager_->is_session_active.SetGetterFunction([this] {
     return login_proxy_->GetProperty("Active").GetBool();
+  });
+
+  // A lock taken before the session was found is reported now.
+  SyncLockedHint();
+}
+
+void GnomeManager::Impl::SyncLockedHint()
+{
+  if (!login_proxy_)
+    return;
+
+  bool locked = manager_->is_locked();
+
+  // In legacy mode another locker owns the hint: leave it alone, except for
+  // clearing a "locked" Unity wrote itself before the switch, once unlocked.
+  if (!manager_->writes_locked_hint() && (!locked_hint_set_ || locked))
+    return;
+
+  locked_hint_set_ = locked;
+  login_proxy_->CallBegin("SetLockedHint", g_variant_new("(b)", locked ? TRUE : FALSE),
+                          [locked] (GVariant*, glib::Error const& err) {
+    if (err)
+      LOG_WARN(logger) << "Failed to set logind LockedHint to " << locked << ": " << err.Message();
   });
 }
 

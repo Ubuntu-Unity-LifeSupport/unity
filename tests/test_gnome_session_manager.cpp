@@ -100,6 +100,9 @@ R"(<node>
 const std::string LOGIND_SESSION =
 R"(<node>
   <interface name="org.freedesktop.login1.Session">
+    <method name="SetLockedHint">
+      <arg type="b" name="locked" direction="in"/>
+    </method>
     <signal name="Lock" />
     <signal name="Unlock" />
   </interface>
@@ -264,7 +267,6 @@ struct TestGnomeSessionManager : testing::Test
   void TearDown()
   {
     manager->have_other_open_sessions.changed.clear();
-    manager->is_locked.changed.clear();
     manager->is_session_active.changed.clear();
     manager->lock_requested.clear();
     manager->unlock_requested.clear();
@@ -1302,6 +1304,48 @@ TEST_F(TestGnomeSessionManager, LogindUnLock)
 
   Utils::WaitUntilMSec(unlock_emitted);
   EXPECT_TRUE(unlock_emitted);
+}
+
+TEST_F(TestGnomeSessionManager, LockedHintOnlyWhileWriting)
+{
+  std::vector<bool> hints;
+
+  logind_->GetObject("org.freedesktop.login1.Session")->SetMethodsCallsHandler([&hints] (std::string const& method, GVariant* parameters) -> GVariant* {
+    if (method == "SetLockedHint")
+      hints.push_back(glib::Variant(parameters).GetBool());
+
+    return nullptr;
+  });
+
+  // Legacy mode: the other locker's hint is left alone.
+  manager->is_locked = true;
+  manager->is_locked = false;
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_TRUE(hints.empty());
+
+  manager->is_locked = true;
+  manager->writes_locked_hint = true;
+  Utils::WaitUntilMSec([&hints] { return hints.size() == 1; });
+  ASSERT_EQ(1u, hints.size());
+  EXPECT_TRUE(hints[0]);
+
+  // Switched to legacy while locked: Unity's own "locked" is cleared on
+  // unlock, and nothing is written after that.
+  manager->writes_locked_hint = false;
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_EQ(1u, hints.size());
+
+  manager->is_locked = false;
+  Utils::WaitUntilMSec([&hints] { return hints.size() == 2; });
+  ASSERT_EQ(2u, hints.size());
+  EXPECT_FALSE(hints[1]);
+
+  manager->is_locked = true;
+  manager->is_locked = false;
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_EQ(2u, hints.size());
+
+  logind_->GetObject("org.freedesktop.login1.Session")->SetMethodsCallsHandler(nullptr);
 }
 
 TEST_F(TestGnomeSessionManager, NoLockWhenLockingDisabled)

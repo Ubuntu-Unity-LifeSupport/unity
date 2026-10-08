@@ -41,6 +41,9 @@ public:
   nux::ROProperty<bool> have_other_open_sessions;
   nux::Property<bool> is_locked;
   nux::ROProperty<bool> is_session_active;
+  // Set while Unity's own lockscreen is the session's locker: only then does
+  // the manager mirror is_locked into logind's LockedHint.
+  nux::Property<bool> writes_locked_hint;
 
   virtual std::string RealName() const = 0;
   virtual std::string UserName() const = 0;
