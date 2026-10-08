@@ -296,7 +296,9 @@ void GnomeManager::Impl::SyncLockedHint()
   login_proxy_->CallBegin("SetLockedHint", g_variant_new("(b)", locked ? TRUE : FALSE),
                           [locked] (GVariant*, glib::Error const& err) {
     if (err)
+    {
       LOG_WARN(logger) << "Failed to set logind LockedHint to " << locked << ": " << err.Message();
+    }
   });
 }
 
