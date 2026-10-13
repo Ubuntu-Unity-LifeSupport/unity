@@ -22,6 +22,7 @@
 
 #include <NuxCore/Animation.h>
 #include <UnityCore/ConnectionManager.h>
+#include <UnityCore/GLibDBusProxy.h>
 #include <UnityCore/GLibSource.h>
 
 #include "LockScreenBaseShield.h"
@@ -75,7 +76,12 @@ private:
   void SetupPrimaryShieldConnections();
   void ActivatePanel();
   void SyncInhibitor();
+  bool IsDelegating() const;
+  void CallScreenSaver(std::string const& method, GVariant* parameters = nullptr);
+  void LockOnTakeover();
 
+  void OnNameStateChanged();
+  void OnLogindLockRequested();
   void OnLockRequested(bool prompt);
   void OnUnlockRequested();
   void OnPresenceStatusChanged(bool idle);
@@ -111,6 +117,13 @@ private:
   BlurType old_blur_type_;
   bool is_paint_inhibited_;
   bool buffer_cleared_;
+  bool presence_idle_;
+  bool owner_was_active_;
+  bool pending_prompt_lock_;
+  bool pending_screensaver_;
+  bool lock_on_takeover_;
+
+  glib::DBusProxy::Ptr owner_proxy_;
 
   connection::Wrapper uscreen_connection_;
   connection::Wrapper hidden_window_connection_;
@@ -120,6 +133,7 @@ private:
   glib::Source::UniquePtr lockscreen_delay_timeout_;
   glib::Source::UniquePtr screensaver_activation_timeout_;
   glib::Source::UniquePtr screensaver_post_lock_timeout_;
+  glib::Source::UniquePtr delegated_lock_timeout_;
 };
 
 }

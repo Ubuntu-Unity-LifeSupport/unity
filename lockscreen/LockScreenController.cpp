@@ -78,6 +78,11 @@ Controller::Controller(DBusManager::Ptr const& dbus_manager,
   , prompt_activation_(false)
   , is_paint_inhibited_(false)
   , buffer_cleared_(true)
+  , presence_idle_(false)
+  , owner_was_active_(false)
+  , pending_prompt_lock_(false)
+  , pending_screensaver_(false)
+  , lock_on_takeover_(false)
 {
   auto* uscreen = UScreen::GetDefault();
   uscreen_connection_ = uscreen->changed.connect([this] (int, std::vector<nux::Geometry> const& monitors) {
@@ -94,7 +99,7 @@ Controller::Controller(DBusManager::Ptr const& dbus_manager,
 
   suspend_inhibitor_manager_->connected.connect(sigc::mem_fun(this, &Controller::SyncInhibitor));
   suspend_inhibitor_manager_->about_to_suspend.connect([this] () {
-    if (Settings::Instance().lock_on_suspend())
+    if (!IsDelegating() && Settings::Instance().lock_on_suspend())
     {
       InhibitPaint();
       session_manager_->PromptLockScreen();
@@ -111,6 +116,9 @@ Controller::Controller(DBusManager::Ptr const& dbus_manager,
   }, *this));
 
   dbus_manager_->simulate_activity.connect(sigc::mem_fun(this, &Controller::SimulateActivity));
+  dbus_manager_->name_state.changed.connect(sigc::hide(sigc::mem_fun(this, &Controller::OnNameStateChanged)));
+  session_manager_->logind_lock_requested.connect(sigc::mem_fun(this, &Controller::OnLogindLockRequested));
+  session_manager_->logind_session_ready.changed.connect(sigc::hide(sigc::mem_fun(this, &Controller::LockOnTakeover)));
   session_manager_->screensaver_requested.connect(sigc::mem_fun(this, &Controller::OnScreenSaverActivationRequest));
   session_manager_->lock_requested.connect(sigc::bind(sigc::mem_fun(this, &Controller::OnLockRequested), false));
   session_manager_->prompt_lock_requested.connect(sigc::bind(sigc::mem_fun(this, &Controller::OnLockRequested), true));
@@ -180,7 +188,7 @@ Controller::Controller(DBusManager::Ptr const& dbus_manager,
     }
   });
 
-  SyncInhibitor();
+  OnNameStateChanged();
 }
 
 void Controller::ActivatePanel()
@@ -389,12 +397,99 @@ void Controller::BlankWindowGrabEnable(bool grab)
   }
 }
 
+bool Controller::IsDelegating() const
+{
+  return Settings::Instance().use_legacy() || dbus_manager_->name_state() == DBusManager::NameState::OTHER;
+}
+
+void Controller::CallScreenSaver(std::string const& method, GVariant* parameters)
+{
+  // The owner's proxy keeps SetActive and Lock in order.
+  if (owner_proxy_)
+  {
+    owner_proxy_->CallBegin(method, parameters, [] (GVariant*, glib::Error const&) {});
+    return;
+  }
+
+  auto proxy = std::make_shared<glib::DBusProxy>(dbus_manager_->Name(), "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver");
+  proxy->CallBegin(method, parameters, [proxy] (GVariant*, glib::Error const&) {});
+}
+
+void Controller::OnNameStateChanged()
+{
+  auto state = dbus_manager_->name_state();
+
+  if (state != DBusManager::NameState::OTHER)
+  {
+    owner_proxy_.reset();
+  }
+  else if (!owner_proxy_)
+  {
+    owner_proxy_ = std::make_shared<glib::DBusProxy>(dbus_manager_->Name(), "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver");
+    owner_proxy_->Connect("ActiveChanged", [this] (GVariant* variant) {
+      if (glib::Variant(variant).GetBool())
+        owner_was_active_ = true;
+      else if (owner_was_active_)
+        delegated_lock_timeout_.reset();
+    });
+  }
+
+  if (state == DBusManager::NameState::OWNER)
+  {
+    lock_on_takeover_ = true;
+    LockOnTakeover();
+  }
+
+  if (state != DBusManager::NameState::UNKNOWN)
+  {
+    if (pending_screensaver_)
+    {
+      pending_screensaver_ = false;
+      OnScreenSaverActivationRequest(true);
+    }
+
+    if (pending_prompt_lock_)
+    {
+      pending_prompt_lock_ = false;
+      OnLockRequested(true);
+    }
+  }
+
+  SyncInhibitor();
+}
+
+void Controller::LockOnTakeover()
+{
+  if (!lock_on_takeover_ || !session_manager_->logind_session_ready())
+    return;
+
+  lock_on_takeover_ = false;
+
+  // The session Unity took over is locked by the previous locker: keep it locked.
+  if (dbus_manager_->name_state() == DBusManager::NameState::OWNER && session_manager_->logind_locked_hint())
+    session_manager_->PromptLockScreen();
+}
+
+void Controller::OnLogindLockRequested()
+{
+  // Another locker gets logind's Lock itself.
+  if (IsDelegating())
+    return;
+
+  session_manager_->PromptLockScreen();
+}
+
 void Controller::OnLockRequested(bool prompt)
 {
-  if (Settings::Instance().use_legacy())
+  if (IsDelegating())
   {
-    auto proxy = std::make_shared<glib::DBusProxy>("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver");
-    proxy->CallBegin("Lock", nullptr, [proxy] (GVariant*, glib::Error const&) {});
+    CallScreenSaver("Lock");
+    return;
+  }
+
+  if (dbus_manager_->name_state() == DBusManager::NameState::UNKNOWN)
+  {
+    pending_prompt_lock_ = true;
     return;
   }
 
@@ -441,8 +536,31 @@ void Controller::OnLockRequested(bool prompt)
 
 void Controller::OnPresenceStatusChanged(bool is_idle)
 {
-  if (Settings::Instance().use_legacy())
+  presence_idle_ = is_idle;
+
+  if (IsDelegating())
+  {
+    delegated_lock_timeout_.reset();
+
+    if (!is_idle || session_manager_->logind_locked_hint())
+      return;
+
+    owner_was_active_ = false;
+    CallScreenSaver("SetActive", g_variant_new("(b)", TRUE));
+
+    if (Settings::Instance().lock_on_blank())
+    {
+      // Locks even if the blank failed: SetActive gives no answer to check.
+      delegated_lock_timeout_.reset(new glib::TimeoutSeconds(Settings::Instance().lock_delay(), [this] {
+        if (presence_idle_)
+          session_manager_->PromptLockScreen();
+
+        return false;
+      }));
+    }
+
     return;
+  }
 
   if (is_idle)
   {
@@ -456,14 +574,18 @@ void Controller::OnPresenceStatusChanged(bool is_idle)
 
 void Controller::OnScreenSaverActivationRequest(bool activate)
 {
-  if (Settings::Instance().use_legacy())
+  if (IsDelegating())
   {
     // SetActive(FALSE) will unlock the screen. This used to cause security issues (see lp:1552537).
     if (activate)
-    {
-      auto proxy = std::make_shared<glib::DBusProxy>("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver");
-      proxy->CallBegin("SetActive", g_variant_new("(b)", TRUE), [proxy] (GVariant*, glib::Error const&) {});
-    }
+      CallScreenSaver("SetActive", g_variant_new("(b)", TRUE));
+
+    return;
+  }
+
+  if (dbus_manager_->name_state() == DBusManager::NameState::UNKNOWN)
+  {
+    pending_screensaver_ = activate;
     return;
   }
 
@@ -531,6 +653,7 @@ void Controller::SimulateActivity()
 
 void Controller::OnUnlockRequested()
 {
+  pending_prompt_lock_ = false;
   lockscreen_timeout_.reset();
   screensaver_post_lock_timeout_.reset();
 
@@ -602,6 +725,7 @@ void Controller::SyncInhibitor()
   bool inhibit = session_manager_->is_session_active() &&
                  !locked &&
                  Settings::Instance().lock_on_suspend() &&
+                 dbus_manager_->name_state() == DBusManager::NameState::OWNER &&
                  !Settings::Instance().use_legacy();
 
   if (inhibit)
