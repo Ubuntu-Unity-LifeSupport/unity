@@ -1,3 +1,23 @@
+unity (7.7.1+26.04.20260306-0ubuntu3+unity14) resolute; urgency=medium
+
+  * lockscreen: while another connection owns org.gnome.ScreenSaver (the
+    session's screen locker, e.g. light-locker), Unity's own lockscreen
+    stands down: manual locks and screensaver activation are forwarded to
+    the owner, logind's Lock is left to it, no lock is taken on suspend and
+    no suspend inhibitor is held, and Unity does not write logind's
+    LockedHint. On presence idle Unity asks the owner to blank (SetActive)
+    and, if org.gnome.desktop.screensaver lock-enabled, to lock after
+    lock-delay. The same applies in legacy mode (screen reader or on-screen
+    keyboard enabled), where the session now also locks on idle. When the
+    other locker goes away Unity gets the name and locks again, keeping a
+    lock that logind reports.
+  * UnityCore: DBusServer::name_acquired is emitted when the name is owned,
+    not when the bus connection is made.
+  * debian/control: unity Breaks light-locker (<< 1.8.0-3ubuntu4+unity5),
+    which leaves the lock timer after the blank to Unity in a Unity session.
+
+ -- Ubuntu Unity Life Support <mihail.rozshko@gmail.com>  Tue, 13 Oct 2026 23:02:34 +0000
+
 unity (7.7.1+26.04.20260306-0ubuntu3+unity13) resolute; urgency=medium
 
   * lockscreen: org.gnome.ScreenSaver GetActive now answers true while the
