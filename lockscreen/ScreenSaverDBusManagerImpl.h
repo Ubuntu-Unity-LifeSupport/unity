@@ -35,6 +35,7 @@ struct DBusManager::Impl : sigc::trackable
   bool IsActive() const;
   void UpdateActive();
   void EnsureService();
+  void SetNameState(NameState);
 
   DBusManager* manager_;
   session::Manager::Ptr session_;
@@ -44,6 +45,7 @@ struct DBusManager::Impl : sigc::trackable
 
   bool active_;
   time_t time_;
+  NameState name_state_;
 };
 
 }

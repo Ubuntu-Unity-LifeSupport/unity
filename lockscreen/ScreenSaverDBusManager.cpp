@@ -20,6 +20,8 @@
 #include "ScreenSaverDBusManager.h"
 #include "ScreenSaverDBusManagerImpl.h"
 
+#include <NuxCore/Logger.h>
+
 #include "LockScreenSettings.h"
 #include "GLibDBusProxy.h"
 #include "Variant.h"
@@ -28,6 +30,8 @@ namespace unity
 {
 namespace lockscreen
 {
+DECLARE_LOGGER(logger, "unity.lockscreen.dbus");
+
 namespace dbus
 {
 const std::string NAME = "org.gnome.ScreenSaver";
@@ -66,7 +70,9 @@ DBusManager::Impl::Impl(DBusManager* manager, session::Manager::Ptr const& sessi
   , object_(std::make_shared<glib::DBusObject>(dbus::INTROSPECTION_XML, dbus::INTERFACE))
   , active_(false)
   , time_(0)
+  , name_state_(NameState::UNKNOWN)
 {
+  manager_->name_state.SetGetterFunction([this] { return name_state_; });
   manager_->active = false;
   manager_->active.changed.connect(sigc::hide(sigc::mem_fun(this, &DBusManager::Impl::UpdateActive)));
   // The blank window alone is not the lock: a locked session counts as active too.
@@ -109,25 +115,47 @@ DBusManager::Impl::Impl(DBusManager* manager, session::Manager::Ptr const& sessi
 
 void DBusManager::Impl::EnsureService()
 {
-  session_->writes_locked_hint = !Settings::Instance().use_legacy();
-
   if (!Settings::Instance().use_legacy())
   {
     if (!server_)
     {
+      SetNameState(NameState::UNKNOWN);
       server_ = std::make_shared<glib::DBusServer>(test_mode_ ? dbus::TEST_NAME : dbus::NAME,
                                                    G_BUS_TYPE_SESSION, G_BUS_NAME_OWNER_FLAGS_REPLACE);
+      server_->name_acquired.connect([this] {
+        LOG_WARN(logger) << "Unity's lockscreen is the screen locker: it owns " << server_->Name();
+        SetNameState(NameState::OWNER);
+      });
+      // Also when queued behind another connection: Unity gets the name if that one goes away.
+      server_->name_lost.connect([this] {
+        SetNameState(NameState::OTHER);
+      });
       server_->AddObject(object_, dbus::OBJECT_PATH);
     }
   }
   else
   {
+    if (server_)
+      server_->RemoveObject(object_);
+
     server_.reset();
+    SetNameState(NameState::OTHER);
 
     // Let's make GS to restart...
     auto proxy = std::make_shared<glib::DBusProxy>("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver");
     proxy->CallBegin("SimulateUserActivity", nullptr, [proxy] (GVariant*, glib::Error const&) {});
   }
+}
+
+void DBusManager::Impl::SetNameState(NameState state)
+{
+  session_->writes_locked_hint = (state == NameState::OWNER);
+
+  if (state == name_state_)
+    return;
+
+  name_state_ = state;
+  manager_->name_state.changed.emit(state);
 }
 
 bool DBusManager::Impl::IsActive() const
