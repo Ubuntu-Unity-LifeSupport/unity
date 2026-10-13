@@ -252,7 +252,7 @@ void GnomeManager::Impl::SetupLogin1Proxy(std::string const& session_path)
                                                    G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES);
 
   login_proxy_->Connect("Lock", [this](GVariant*){
-    manager_->PromptLockScreen();
+    manager_->logind_lock_requested.emit();
   });
 
   login_proxy_->Connect("Unlock", [this](GVariant*){
@@ -268,6 +268,18 @@ void GnomeManager::Impl::SetupLogin1Proxy(std::string const& session_path)
 
   manager_->is_session_active.SetGetterFunction([this] {
     return login_proxy_->GetProperty("Active").GetBool();
+  });
+
+  manager_->logind_session_ready.SetGetterFunction([this] {
+    return login_proxy_->IsConnected();
+  });
+
+  manager_->logind_locked_hint.SetGetterFunction([this] {
+    return login_proxy_->GetProperty("LockedHint").GetBool();
+  });
+
+  login_proxy_->connected.connect([this] {
+    manager_->logind_session_ready.changed.emit(true);
   });
 
   // A lock taken before the session was found is reported now.
