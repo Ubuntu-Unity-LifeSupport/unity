@@ -521,18 +521,23 @@ struct DBusServer::Impl
     : Impl(server, name)
   {
     owner_name_ = g_bus_own_name(bus_type, name.c_str(), flags,
-      [] (GDBusConnection* conn, const gchar* name, gpointer data)
+      [] (GDBusConnection* conn, const gchar*, gpointer data)
+      {
+        auto self = static_cast<DBusServer::Impl*>(data);
+
+        self->connection_ = glib::Object<GDBusConnection>(conn, glib::AddRef());
+        self->server_->connected.emit();
+        self->RegisterPendingObjects();
+      },
+      [] (GDBusConnection*, const gchar* name, gpointer data)
       {
         auto self = static_cast<DBusServer::Impl*>(data);
 
         LOG_INFO(logger_s) << "DBus name acquired '" << name << "'";
 
-        self->connection_ = glib::Object<GDBusConnection>(conn, glib::AddRef());
         self->name_owned_ = true;
         self->server_->name_acquired.emit();
-        self->server_->connected.emit();
-        self->RegisterPendingObjects();
-      }, nullptr,
+      },
       [] (GDBusConnection *connection, const gchar *name, gpointer data)
       {
         auto self = static_cast<DBusServer::Impl*>(data);

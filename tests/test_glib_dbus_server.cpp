@@ -136,7 +136,7 @@ TEST_F(TestGLibDBusServer, Connects)
   Utils::WaitUntilMSec(connected);
 
   EXPECT_TRUE(connected);
-  EXPECT_TRUE(server.OwnsName());
+  Utils::WaitUntilMSec([this] { return server.OwnsName(); });
   EXPECT_TRUE(server.IsConnected());
 }
 
