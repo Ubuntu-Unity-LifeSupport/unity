@@ -115,7 +115,11 @@ GnomeManager::Impl::Impl(GnomeManager* manager, bool test_mode)
   });
 
   manager_->writes_locked_hint = false;
-  manager_->writes_locked_hint.changed.connect(sigc::hide(sigc::mem_fun(this, &Impl::SyncLockedHint)));
+  // Unity taking over from another locker reports its own lock, never "unlocked".
+  manager_->writes_locked_hint.changed.connect([this] (bool) {
+    if (manager_->is_locked())
+      SyncLockedHint();
+  });
 
   {
     std::string session_id = test_mode_ ? "id0" : glib::gchar_to_string(g_getenv("XDG_SESSION_ID"));
@@ -283,7 +287,8 @@ void GnomeManager::Impl::SetupLogin1Proxy(std::string const& session_path)
   });
 
   // A lock taken before the session was found is reported now.
-  SyncLockedHint();
+  if (manager_->is_locked())
+    SyncLockedHint();
 }
 
 void GnomeManager::Impl::SyncLockedHint()
