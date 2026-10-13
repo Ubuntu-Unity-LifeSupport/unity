@@ -35,6 +35,7 @@ using namespace testing;
 #include "unity-shared/PanelStyle.h"
 #include "unity-shared/UScreen.h"
 #include "mock_key_grabber.h"
+#include "mock_screensaver_owner.h"
 #include "test_mock_session_manager.h"
 #include "test_uscreen_mock.h"
 #include "test_utils.h"
@@ -103,6 +104,7 @@ struct TestLockScreenController : Test
 
     using Controller::shields_;
     using Controller::blank_window_;
+    using Controller::suspend_inhibitor_manager_;
   };
 
   nux::NuxTimerTickSource tick_source;
@@ -266,6 +268,297 @@ TEST_F(TestLockScreenController, ShieldHasGrabAfterBlank)
   dbus_manager->simulate_activity.emit();
 
   EXPECT_TRUE(controller.shields_.at(0)->OwnsPointerGrab());
+}
+
+// Another screen locker owns org.gnome.Test.ScreenSaver before Unity asks for it.
+struct TestLockScreenControllerOtherLocker : Test
+{
+  TestLockScreenControllerOtherLocker()
+    : animation_controller(tick_source)
+    , owner(std::make_shared<MockScreenSaverOwner>("org.gnome.Test.ScreenSaver"))
+    , session_manager(std::make_shared<NiceMock<session::MockManager>>())
+    , key_grabber(std::make_shared<key::MockGrabber::Nice>())
+    , dbus_manager(std::make_shared<TestDBusManager>(session_manager))
+    , systemd_wrapper(std::make_shared<SystemdWrapper>())
+    , upstart_wrapper(std::make_shared<UpstartWrapper>())
+    , shield_factory(std::make_shared<ShieldFactoryMock>())
+    , controller(dbus_manager, session_manager, key_grabber, systemd_wrapper, upstart_wrapper, shield_factory)
+    , locked_hint(false)
+    , logind_session_ready(false)
+  {
+    lockscreen_settings.lock_on_blank = true;
+    lockscreen_settings.lock_delay = 0;
+    lockscreen_settings.lock_on_suspend = true;
+
+    session_manager->logind_locked_hint.SetGetterFunction([this] { return locked_hint; });
+    session_manager->logind_session_ready.SetGetterFunction([this] { return logind_session_ready; });
+    ON_CALL(*session_manager, PromptLockScreen()).WillByDefault(Invoke([this] {
+      session_manager->prompt_lock_requested.emit();
+    }));
+
+    Utils::WaitUntilMSec([this] { return dbus_manager->name_state() == DBusManager::NameState::OTHER; });
+  }
+
+  struct TestDBusManager : DBusManager
+  {
+    TestDBusManager(session::Manager::Ptr const& session_manager)
+      : DBusManager(session_manager, DBusManager::TestMode())
+    {}
+  };
+
+  void SetLogindLockedHint(bool hint)
+  {
+    locked_hint = hint;
+    logind_session_ready = true;
+    session_manager->logind_session_ready.changed.emit(true);
+  }
+
+  nux::NuxTimerTickSource tick_source;
+  nux::animation::AnimationController animation_controller;
+
+  MockUScreen uscreen;
+  unity::input::Monitor im;
+  unity::dash::Style dash_style;
+  unity::panel::Style panel_style;
+  unity::lockscreen::Settings lockscreen_settings;
+  MockScreenSaverOwner::Ptr owner;
+  session::MockManager::Ptr session_manager;
+  key::MockGrabber::Ptr key_grabber;
+  DBusManager::Ptr dbus_manager;
+  unity::SystemdWrapper::Ptr systemd_wrapper;
+  unity::UpstartWrapper::Ptr upstart_wrapper;
+
+  ShieldFactoryMock::Ptr shield_factory;
+  TestLockScreenController::ControllerWrap controller;
+  bool locked_hint;
+  bool logind_session_ready;
+};
+
+TEST_F(TestLockScreenControllerOtherLocker, IdleBlanksThroughTheOwnerThenLocks)
+{
+  lockscreen_settings.lock_delay = 1;
+
+  session_manager->presence_status_changed.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+  ASSERT_EQ(1u, owner->set_active.size());
+  EXPECT_TRUE(owner->set_active[0]);
+  EXPECT_FALSE(controller.blank_window_);
+
+  Utils::WaitForTimeoutMSec(500);
+  EXPECT_EQ(0u, owner->locks);
+
+  Utils::WaitUntilMSec([this] { return owner->locks == 1; }, true, 2000);
+  EXPECT_EQ(1u, owner->locks);
+  EXPECT_TRUE(controller.shields_.empty());
+  EXPECT_FALSE(controller.blank_window_);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, IdleDoesNotLockWhenLockingIsOff)
+{
+  lockscreen_settings.lock_on_blank = false;
+
+  session_manager->presence_status_changed.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+
+  Utils::WaitForTimeoutMSec(300);
+  EXPECT_EQ(1u, owner->set_active.size());
+  EXPECT_EQ(0u, owner->locks);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, IdleDoesNotLockWhenUnityCannotLock)
+{
+  ON_CALL(*session_manager, PromptLockScreen()).WillByDefault(Return());
+
+  session_manager->presence_status_changed.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+
+  Utils::WaitForTimeoutMSec(300);
+  EXPECT_EQ(0u, owner->locks);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, ActivityBeforeTheDelayCancelsTheLock)
+{
+  lockscreen_settings.lock_delay = 1;
+
+  session_manager->presence_status_changed.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+  session_manager->presence_status_changed.emit(false);
+
+  Utils::WaitForTimeoutMSec(1500);
+  EXPECT_EQ(0u, owner->locks);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, OwnerUnblankingCancelsTheLock)
+{
+  lockscreen_settings.lock_delay = 1;
+
+  session_manager->presence_status_changed.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+  owner->EmitActiveChanged(true);
+  owner->EmitActiveChanged(false);
+
+  Utils::WaitForTimeoutMSec(1500);
+  EXPECT_EQ(0u, owner->locks);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, IdleIsIgnoredWhileTheSessionIsLocked)
+{
+  SetLogindLockedHint(true);
+
+  session_manager->presence_status_changed.emit(true);
+
+  Utils::WaitForTimeoutMSec(300);
+  EXPECT_TRUE(owner->set_active.empty());
+  EXPECT_EQ(0u, owner->locks);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, LegacyIdleBlanksAndLocks)
+{
+  lockscreen_settings.use_legacy = true;
+
+  session_manager->presence_status_changed.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+  Utils::WaitUntilMSec([this] { return owner->locks == 1; });
+  EXPECT_EQ(1u, owner->locks);
+  EXPECT_FALSE(controller.blank_window_);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, SuspendIsLeftToTheOwner)
+{
+  EXPECT_CALL(*session_manager, PromptLockScreen()).Times(0);
+
+  controller.suspend_inhibitor_manager_->about_to_suspend.emit();
+
+  Utils::WaitForTimeoutMSec(300);
+  EXPECT_FALSE(controller.IsPaintInhibited());
+  EXPECT_EQ(0u, owner->locks);
+  EXPECT_TRUE(controller.shields_.empty());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, LogindLockIsLeftToTheOwner)
+{
+  EXPECT_CALL(*session_manager, PromptLockScreen()).Times(0);
+
+  session_manager->logind_lock_requested.emit();
+
+  Utils::WaitForTimeoutMSec(300);
+  EXPECT_EQ(0u, owner->locks);
+  EXPECT_TRUE(controller.shields_.empty());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, LockRequestsAreForwardedOnce)
+{
+  session_manager->lock_requested.emit();
+  Utils::WaitUntilMSec([this] { return owner->locks == 1; });
+
+  session_manager->prompt_lock_requested.emit();
+  Utils::WaitUntilMSec([this] { return owner->locks == 2; });
+
+  Utils::WaitForTimeoutMSec(200);
+  EXPECT_EQ(2u, owner->locks);
+  EXPECT_TRUE(controller.shields_.empty());
+  EXPECT_FALSE(controller.blank_window_);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, ScreenSaverActivationIsForwarded)
+{
+  session_manager->screensaver_requested.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+  EXPECT_TRUE(owner->set_active[0]);
+
+  Utils::WaitForTimeoutMSec(200);
+  EXPECT_FALSE(controller.blank_window_);
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, UnityLocksItselfOnceTheOwnerExits)
+{
+  owner->Exit();
+  Utils::WaitUntilMSec([this] { return dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+
+  session_manager->lock_requested.emit();
+  Utils::WaitUntilMSec([this] { return controller.shields_.size() == 1; });
+  EXPECT_EQ(1u, controller.shields_.size());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, TakeoverWhileLockedLocks)
+{
+  SetLogindLockedHint(true);
+
+  owner->Exit();
+  Utils::WaitUntilMSec([this] { return controller.shields_.size() == 1; });
+  EXPECT_EQ(1u, controller.shields_.size());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, TakeoverBeforeTheSessionIsKnownLocks)
+{
+  owner->Exit();
+  Utils::WaitUntilMSec([this] { return dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_TRUE(controller.shields_.empty());
+
+  SetLogindLockedHint(true);
+  Utils::WaitUntilMSec([this] { return controller.shields_.size() == 1; });
+  EXPECT_EQ(1u, controller.shields_.size());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, TakeoverWhileUnlockedDoesNotLock)
+{
+  SetLogindLockedHint(false);
+
+  owner->Exit();
+  Utils::WaitUntilMSec([this] { return dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+  Utils::WaitForTimeoutMSec(200);
+  EXPECT_TRUE(controller.shields_.empty());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, LogindLockWhileUnknownIsReplayed)
+{
+  owner->Exit();
+  lockscreen_settings.use_legacy = true;
+  lockscreen_settings.use_legacy = false;
+  ASSERT_EQ(DBusManager::NameState::UNKNOWN, dbus_manager->name_state());
+
+  session_manager->logind_lock_requested.emit();
+  Utils::WaitUntilMSec([this] { return controller.shields_.size() == 1; });
+  EXPECT_EQ(1u, controller.shields_.size());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, LogindUnlockWhileUnknownDropsTheLock)
+{
+  owner->Exit();
+  lockscreen_settings.use_legacy = true;
+  lockscreen_settings.use_legacy = false;
+  ASSERT_EQ(DBusManager::NameState::UNKNOWN, dbus_manager->name_state());
+
+  session_manager->logind_lock_requested.emit();
+  session_manager->unlock_requested.emit();
+  Utils::WaitUntilMSec([this] { return dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+
+  Utils::WaitForTimeoutMSec(200);
+  EXPECT_TRUE(controller.shields_.empty());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, LockWhileUnknownIsForwardedToTheOwner)
+{
+  lockscreen_settings.use_legacy = true;
+  lockscreen_settings.use_legacy = false;
+  ASSERT_EQ(DBusManager::NameState::UNKNOWN, dbus_manager->name_state());
+
+  session_manager->prompt_lock_requested.emit();
+  Utils::WaitUntilMSec([this] { return owner->locks == 1; });
+  EXPECT_EQ(1u, owner->locks);
+  EXPECT_TRUE(controller.shields_.empty());
+}
+
+TEST_F(TestLockScreenControllerOtherLocker, ScreenSaverActivationWhileUnknownIsReplayed)
+{
+  lockscreen_settings.use_legacy = true;
+  lockscreen_settings.use_legacy = false;
+  ASSERT_EQ(DBusManager::NameState::UNKNOWN, dbus_manager->name_state());
+
+  session_manager->screensaver_requested.emit(true);
+  Utils::WaitUntilMSec([this] { return owner->set_active.size() == 1; });
+  EXPECT_FALSE(controller.blank_window_);
 }
 
 } // lockscreen

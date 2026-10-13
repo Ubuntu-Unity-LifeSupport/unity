@@ -24,6 +24,7 @@ using namespace testing;
 #include "lockscreen/LockScreenSettings.h"
 #include "lockscreen/ScreenSaverDBusManager.h"
 #include "lockscreen/ScreenSaverDBusManagerImpl.h"
+#include "mock_screensaver_owner.h"
 #include "test_mock_session_manager.h"
 #include "test_utils.h"
 
@@ -198,14 +199,47 @@ TEST_F(TestScreenSaverDBusManager, ActiveChangedOnlyOnChange)
   EXPECT_FALSE(signals[1]);
 }
 
-TEST_F(TestScreenSaverDBusManager, WritesLockedHintOnlyWithoutLegacy)
+TEST_F(TestScreenSaverDBusManager, WritesLockedHintOnlyAsOwner)
 {
-  lockscreen_settings.use_legacy = false;
-  auto sc_dbus_manager_tmp = std::make_shared<WrapperDBusManager>(session_manager);
+  Utils::WaitUntilMSec([this] { return sc_dbus_manager->name_state() == DBusManager::NameState::OWNER; });
   EXPECT_TRUE(session_manager->writes_locked_hint());
 
   lockscreen_settings.use_legacy = true;
+  EXPECT_EQ(DBusManager::NameState::OTHER, sc_dbus_manager->name_state());
   EXPECT_FALSE(session_manager->writes_locked_hint());
+}
+
+TEST_F(TestScreenSaverDBusManager, LeavingLegacyRequestsTheNameAgain)
+{
+  Utils::WaitUntilMSec([this] { return sc_dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+
+  lockscreen_settings.use_legacy = true;
+  lockscreen_settings.use_legacy = false;
+  EXPECT_EQ(DBusManager::NameState::UNKNOWN, sc_dbus_manager->name_state());
+  EXPECT_FALSE(session_manager->writes_locked_hint());
+
+  Utils::WaitUntilMSec([this] { return sc_dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+  EXPECT_TRUE(session_manager->writes_locked_hint());
+}
+
+TEST_F(TestScreenSaverDBusManager, LegacyUnexportsTheObject)
+{
+  lockscreen_settings.use_legacy = true;
+
+  glib::Object<GDBusConnection> bus(g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr));
+  auto proxy = std::make_shared<glib::DBusProxy>(g_dbus_connection_get_unique_name(bus),
+                                                 "/org/gnome/ScreenSaver",
+                                                 "org.gnome.ScreenSaver");
+  bool call_finished = false;
+  bool call_failed = false;
+
+  proxy->CallBegin("GetActive", nullptr, [&call_finished, &call_failed] (GVariant*, glib::Error const& err) {
+    call_finished = true;
+    call_failed = static_cast<bool>(err);
+  });
+
+  Utils::WaitUntil(call_finished);
+  EXPECT_TRUE(call_failed);
 }
 
 TEST_F(TestScreenSaverDBusManager, GetActiveTime)
@@ -260,7 +294,48 @@ TEST_F(TestScreenSaverDBusManager, ActiveChanged)
   ASSERT_FALSE(active);
 }
 
+struct TestScreenSaverDBusManagerOtherOwner : Test
+{
+  TestScreenSaverDBusManagerOtherOwner()
+    : owner(std::make_shared<MockScreenSaverOwner>("org.gnome.Test.ScreenSaver"))
+    , session_manager(std::make_shared<session::MockManager>())
+  {
+    session_manager->writes_locked_hint.changed.connect([this] (bool writes) {
+      writes_locked_hint_changes.push_back(writes);
+    });
 
+    sc_dbus_manager = std::make_shared<TestDBusManager>(session_manager);
+    Utils::WaitUntilMSec([this] { return sc_dbus_manager->name_state() == DBusManager::NameState::OTHER; });
+  }
+
+  struct TestDBusManager : DBusManager
+  {
+    TestDBusManager(session::Manager::Ptr const& session_manager)
+      : DBusManager(session_manager, DBusManager::TestMode())
+    {}
+  };
+
+  unity::lockscreen::Settings lockscreen_settings;
+  MockScreenSaverOwner::Ptr owner;
+  session::MockManager::Ptr session_manager;
+  std::vector<bool> writes_locked_hint_changes;
+  DBusManager::Ptr sc_dbus_manager;
+};
+
+TEST_F(TestScreenSaverDBusManagerOtherOwner, WritesNoLockedHint)
+{
+  EXPECT_EQ(DBusManager::NameState::OTHER, sc_dbus_manager->name_state());
+  EXPECT_FALSE(session_manager->writes_locked_hint());
+  EXPECT_TRUE(writes_locked_hint_changes.empty());
+}
+
+TEST_F(TestScreenSaverDBusManagerOtherOwner, TakesTheNameWhenTheOwnerExits)
+{
+  owner->Exit();
+
+  Utils::WaitUntilMSec([this] { return sc_dbus_manager->name_state() == DBusManager::NameState::OWNER; });
+  EXPECT_TRUE(session_manager->writes_locked_hint());
+}
 
 }
 }

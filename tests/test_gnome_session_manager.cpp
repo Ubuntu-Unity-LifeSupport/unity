@@ -103,6 +103,7 @@ R"(<node>
     <method name="SetLockedHint">
       <arg type="b" name="locked" direction="in"/>
     </method>
+    <property name="LockedHint" type="b" access="read"/>
     <signal name="Lock" />
     <signal name="Unlock" />
   </interface>
@@ -191,6 +192,12 @@ struct TestGnomeSessionManager : testing::Test
     logind_ = std::make_shared<DBusServer>();
     logind_->AddObjects(introspection::LOGIND_MANAGER, LOGIND_MANAGER_PATH);
     logind_->AddObjects(introspection::LOGIND_SESSION, LOGIND_SESSION_PATH);
+    logind_->GetObject("org.freedesktop.login1.Session")->SetPropertyGetter([] (std::string const& property) -> GVariant* {
+      if (property == "LockedHint")
+        return g_variant_new_boolean(locked_hint_ ? TRUE : FALSE);
+
+      return nullptr;
+    });
     logind_->GetObjects().front()->SetMethodsCallsHandler([&] (std::string const& method, GVariant*) -> GVariant* {
       if (method == "GetSession")
       {
@@ -274,6 +281,7 @@ struct TestGnomeSessionManager : testing::Test
     manager->lock_requested.clear();
     manager->unlock_requested.clear();
     manager->prompt_lock_requested.clear();
+    manager->logind_lock_requested.clear();
     manager->locked.clear();
     manager->unlocked.clear();
     manager->logout_requested.clear();
@@ -371,6 +379,7 @@ struct TestGnomeSessionManager : testing::Test
   static bool can_shutdown_;
   static bool can_suspend_;
   static bool can_hibernate_;
+  static bool locked_hint_;
 
   static session::Manager::Ptr manager;
   static DBusServer::Ptr upower_;
@@ -391,6 +400,7 @@ DBusProxy::Ptr TestGnomeSessionManager::shell_proxy_;
 bool TestGnomeSessionManager::can_shutdown_;
 bool TestGnomeSessionManager::can_suspend_;
 bool TestGnomeSessionManager::can_hibernate_;
+bool TestGnomeSessionManager::locked_hint_ = false;
 
 TEST_F(TestGnomeSessionManager, CanShutdown)
 {
@@ -1282,16 +1292,23 @@ TEST_F(TestGnomeSessionManager, CancelRequested)
 TEST_F(TestGnomeSessionManager, LogindLock)
 {
   bool signal_emitted = false;
+  bool prompt_lock_emitted = false;
 
-  manager->prompt_lock_requested.connect([&signal_emitted]()
+  manager->logind_lock_requested.connect([&signal_emitted]()
   {
     signal_emitted = true;
+  });
+
+  manager->prompt_lock_requested.connect([&prompt_lock_emitted]()
+  {
+    prompt_lock_emitted = true;
   });
 
   logind_->GetObject("org.freedesktop.login1.Session")->EmitSignal("Lock");
 
   Utils::WaitUntilMSec(signal_emitted);
   EXPECT_TRUE(signal_emitted);
+  EXPECT_FALSE(prompt_lock_emitted);
 }
 
 TEST_F(TestGnomeSessionManager, LogindUnLock)
@@ -1307,6 +1324,44 @@ TEST_F(TestGnomeSessionManager, LogindUnLock)
 
   Utils::WaitUntilMSec(unlock_emitted);
   EXPECT_TRUE(unlock_emitted);
+}
+
+TEST_F(TestGnomeSessionManager, LogindLockedHint)
+{
+  Utils::WaitUntilMSec([] { return manager->logind_session_ready(); });
+  ASSERT_TRUE(manager->logind_session_ready());
+  EXPECT_FALSE(manager->logind_locked_hint());
+
+  locked_hint_ = true;
+  logind_->GetObject("org.freedesktop.login1.Session")->EmitPropertyChanged("LockedHint");
+  Utils::WaitUntilMSec([] { return manager->logind_locked_hint(); });
+
+  locked_hint_ = false;
+  logind_->GetObject("org.freedesktop.login1.Session")->EmitPropertyChanged("LockedHint");
+  Utils::WaitUntilMSec([] { return manager->logind_locked_hint(); }, false);
+}
+
+TEST_F(TestGnomeSessionManager, NoUnlockedHintWhenStartingToWrite)
+{
+  std::vector<bool> hints;
+
+  logind_->GetObject("org.freedesktop.login1.Session")->SetMethodsCallsHandler([&hints] (std::string const& method, GVariant* parameters) -> GVariant* {
+    if (method == "SetLockedHint")
+      hints.push_back(glib::Variant(parameters).GetBool());
+
+    return nullptr;
+  });
+
+  // Unity takes over from another locker while unlocked: the other locker's
+  // hint is not overwritten with "no".
+  manager->writes_locked_hint = true;
+  Utils::WaitForTimeoutMSec(100);
+  EXPECT_TRUE(hints.empty());
+
+  manager->is_locked = true;
+  Utils::WaitUntilMSec([&hints] { return hints.size() == 1; });
+  ASSERT_EQ(1u, hints.size());
+  EXPECT_TRUE(hints[0]);
 }
 
 TEST_F(TestGnomeSessionManager, LockedHintOnlyWhileWriting)
