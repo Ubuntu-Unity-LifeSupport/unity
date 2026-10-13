@@ -44,6 +44,9 @@ public:
   // Set while Unity's own lockscreen is the session's locker: only then does
   // the manager mirror is_locked into logind's LockedHint.
   nux::Property<bool> writes_locked_hint;
+  // logind's LockedHint for this session, valid once logind_session_ready.
+  nux::ROProperty<bool> logind_session_ready;
+  nux::ROProperty<bool> logind_locked_hint;
 
   virtual std::string RealName() const = 0;
   virtual std::string UserName() const = 0;
@@ -77,6 +80,7 @@ public:
   sigc::signal<void> lock_requested;
   sigc::signal<void> unlock_requested;
   sigc::signal<void> prompt_lock_requested;
+  sigc::signal<void> logind_lock_requested;
   sigc::signal<void> locked;
   sigc::signal<void> unlocked;
   sigc::signal<void, bool /* inhibitors */> logout_requested;

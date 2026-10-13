@@ -162,5 +162,10 @@ DBusManager::DBusManager(session::Manager::Ptr const& session, DBusManager::Test
 DBusManager::~DBusManager()
 {}
 
+std::string const& DBusManager::Name() const
+{
+  return impl_->test_mode_ ? dbus::TEST_NAME : dbus::NAME;
+}
+
 } // lockscreen
 } // unity

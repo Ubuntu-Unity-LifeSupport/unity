@@ -37,7 +37,18 @@ public:
   DBusManager(session::Manager::Ptr const&);
   ~DBusManager();
 
+  // Who owns the org.gnome.ScreenSaver name Unity asks for.
+  enum class NameState
+  {
+    UNKNOWN,
+    OWNER,
+    OTHER
+  };
+
   nux::Property<bool> active;
+  nux::ROProperty<NameState> name_state;
+
+  std::string const& Name() const;
 
   sigc::signal<void> simulate_activity;
 
